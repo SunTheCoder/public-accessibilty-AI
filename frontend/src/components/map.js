@@ -19,6 +19,7 @@ const Map = () => {
   const [stations, setStations] = useState([]);
   const [selectedStation, setSelectedStation] = useState(null); // Track selected station for editing
 
+  // Fetch stations from Supabase
   useEffect(() => {
     const fetchStations = async () => {
       const { data, error } = await supabase.from('stations').select('*');
@@ -30,13 +31,46 @@ const Map = () => {
     };
 
     fetchStations();
+
+    // Listen for realtime updates
+    const subscription = supabase
+      .channel('realtime:stations')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'stations' },
+        (payload) => {
+          console.log('Change received!', payload);
+          handleRealtimeUpdate(payload);
+        }
+      )
+      .subscribe();
+
+    // Cleanup subscription on component unmount
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, []);
+
+  // Handle realtime updates
+  const handleRealtimeUpdate = (payload) => {
+    const { eventType, new: newStation, old: oldStation } = payload;
+
+    if (eventType === 'INSERT') {
+      setStations((prev) => [...prev, newStation]);
+    } else if (eventType === 'UPDATE') {
+      setStations((prev) =>
+        prev.map((station) => (station.id === newStation.id ? newStation : station))
+      );
+    } else if (eventType === 'DELETE') {
+      setStations((prev) => prev.filter((station) => station.id !== oldStation.id));
+    }
+  };
 
   const position = [37.534184, -77.429563];
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100%' }}>
-      <MapContainer center={position} zoom={13} style={{ flex: 1 }}>
+    <div className="flex h-screen w-full">
+      <MapContainer center={position} zoom={13} className="flex-1">
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -50,23 +84,34 @@ const Map = () => {
             }}
           >
             <Popup>
-              <strong>{station.name}</strong>
-              <br />
-              Accessible: {station.is_accessible ? 'Yes' : 'No'}
-              <br />
-              <button onClick={() => setSelectedStation(station)}>Edit</button>
+              <div className="text-center">
+                <strong>{station.name}</strong>
+                <br />
+                Accessible: {station.is_accessible ? 'Yes' : 'No'}
+                <br />
+                <button
+                  className="mt-2 bg-blue-500 text-white px-4 py-1 rounded hover:bg-blue-600"
+                  onClick={() => setSelectedStation(station)}
+                >
+                  Edit
+                </button>
+              </div>
             </Popup>
           </Marker>
         ))}
       </MapContainer>
 
-      {/* Render EditStationForm if a station is selected */}
       {selectedStation && (
-        <div style={{ width: '300px', padding: '1rem', backgroundColor: '#f4f4f4' }}>
-          <h2>Edit Station</h2>
-          <EditStationForm station={selectedStation} />
-          <button onClick={() => setSelectedStation(null)}>Close</button>
-        </div>
+         <div className="w-80 p-4 bg-white shadow-lg border-l">
+         <h2 className="text-xl font-semibold mb-4">Edit Station</h2>
+         <EditStationForm station={selectedStation} />
+         <button
+           className="mt-4 w-20 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+           onClick={() => setSelectedStation(null)}
+         >
+           Close
+         </button>
+       </div>
       )}
     </div>
   );
