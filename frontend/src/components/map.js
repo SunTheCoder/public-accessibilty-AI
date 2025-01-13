@@ -33,21 +33,47 @@ const Map = () => {
     fetchStations();
 
     // Listen for realtime updates
-    const subscription = supabase
-      .channel('realtime:stations')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'stations' },
-        (payload) => {
-          console.log('Change received!', payload);
-          handleRealtimeUpdate(payload);
-        }
-      )
-      .subscribe();
+    const stationSubscription = supabase
+    .channel('realtime:stations')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'stations' },
+      (payload) => {
+        console.log('Station change received!', payload);
+        handleRealtimeUpdate(payload);
+      }
+    )
+    .subscribe();
 
-    // Cleanup subscription on component unmount
-    return () => {
-      supabase.removeChannel(subscription);
+  const updatesSubscription = supabase
+    .channel('realtime:accessibility_updates')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'accessibility_updates' },
+      (payload) => {
+        console.log('Accessibility update received!', payload);
+        handleRealtimeUpdate(payload); // Update the map or display the update
+      }
+    )
+    .subscribe();
+
+  const issuesSubscription = supabase
+    .channel('realtime:real_time_issues')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'real_time_issues' },
+      (payload) => {
+        console.log('Real-time issue received!', payload);
+        handleRealtimeUpdate(payload); // Display the issue on the map or list
+      }
+    )
+    .subscribe();
+
+  // Cleanup all subscriptions on component unmount
+  return () => {
+    supabase.removeChannel(stationSubscription);
+    supabase.removeChannel(updatesSubscription);
+    supabase.removeChannel(issuesSubscription);
     };
   }, []);
 
@@ -89,12 +115,7 @@ const Map = () => {
                 <br />
                 Accessible: {station.is_accessible ? 'Yes' : 'No'}
                 <br />
-                <button
-                  className="mt-2 bg-blue-500 text-white px-4 py-1 rounded hover:bg-blue-600"
-                  onClick={() => setSelectedStation(station)}
-                >
-                  Edit
-                </button>
+                
               </div>
             </Popup>
           </Marker>
