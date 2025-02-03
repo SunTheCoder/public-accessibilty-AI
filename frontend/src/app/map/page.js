@@ -28,7 +28,7 @@ export default function MapPage() {
         )}
       </div>
 
-      <h1 className="text-2xl font-bold p-4 z-40 relative">Public Transit Accessibility</h1>
+      <h1 className="text-2xl font-bold p-4 z-40 ml-10 relative">Our Spots</h1>
       <div className="absolute inset-0 z-0">
         <Map />
       </div>
