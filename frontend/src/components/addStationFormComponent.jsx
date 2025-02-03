@@ -34,10 +34,10 @@ const AddStationForm = () => {
 
   return (
     <form onSubmit={handleSubmit} className="bg-white p-6 rounded shadow-lg max-w-md mx-auto">
-      <h2 className="text-xl font-bold mb-4">Add a New Station</h2>
+      <h2 className="text-xl font-bold mb-4">Add a New Spot</h2>
       
       <label className="block mb-2">
-        <span className="text-gray-700">Station Name:</span>
+        <span className="text-gray-700">Spot Name:</span>
         <input
           type="text"
           value={name}
@@ -85,7 +85,7 @@ const AddStationForm = () => {
         type="submit"
         className="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded hover:bg-blue-600"
       >
-        Add Station
+        Add Spot
       </button>
     </form>
   );

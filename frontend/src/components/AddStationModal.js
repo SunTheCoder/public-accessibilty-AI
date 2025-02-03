@@ -50,11 +50,11 @@ const AddStationModal = ({ position, onSave, onClose }) => {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style={{ zIndex: 1002 }}>
       <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
-        <h2 className="text-xl font-bold mb-4">Add New Station</h2>
+        <h2 className="text-xl font-bold mb-4">Add Spot</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700">
-              Station Name
+              Spot Name
             </label>
             <input
               type="text"
@@ -74,7 +74,7 @@ const AddStationModal = ({ position, onSave, onClose }) => {
               className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
             />
             <label htmlFor="isAccessible" className="ml-2 block text-sm text-gray-900">
-              Accessible Station
+              Accessible Spot
             </label>
           </div>
 
@@ -94,7 +94,7 @@ const AddStationModal = ({ position, onSave, onClose }) => {
               type="submit"
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md"
             >
-              Add Station
+              Add Spot
             </button>
           </div>
         </form>
