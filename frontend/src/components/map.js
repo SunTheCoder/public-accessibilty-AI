@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet'; // Import Leaflet to fix marker icon paths
 import 'leaflet/dist/leaflet.css';
 import { supabase } from '../../supabase';
 import EditStationForm from './editStationComponent'; // Ensure the path is correct
 import { getRoute } from '../lib/routingService';
 import RouteInfo from './RouteInfo';  // Add this import
+import AddStationModal from './AddStationModal';
+import { localStore } from '../lib/localStore';
 
 // Fix default icon paths
 delete L.Icon.Default.prototype._getIconUrl;
@@ -43,67 +45,86 @@ function RouteLayer({ routeGeometry }) {
   return null;
 }
 
+// Add this component to display alternative routes
+function AlternativeRoutesLayer({ routes, onSelectRoute }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!routes) return;
+
+    const layers = routes.map((route, index) => {
+      const layer = L.geoJSON(route.geometry, {
+        style: {
+          color: '#9333ea', // Purple color for alternative routes
+          weight: 3,
+          opacity: 0.5,
+          dashArray: '5, 10' // Dashed line for alternatives
+        }
+      }).addTo(map);
+
+      // Make alternative routes clickable
+      layer.on('click', () => onSelectRoute(route, index));
+      
+      return layer;
+    });
+
+    return () => {
+      layers.forEach(layer => map.removeLayer(layer));
+    };
+  }, [map, routes, onSelectRoute]);
+
+  return null;
+}
+
+// Add this component to handle map clicks
+function MapClickHandler({ onMapClick }) {
+  useMapEvents({
+    click: (e) => {
+      onMapClick([e.latlng.lat, e.latlng.lng]);
+    },
+  });
+  return null;
+}
+
 const Map = () => {
   const [stations, setStations] = useState([]);
   const [selectedStations, setSelectedStations] = useState([]);
   const [route, setRoute] = useState(null);
   const [routeInfo, setRouteInfo] = useState(null);  // Add this state
+  const [alternativeRoutes, setAlternativeRoutes] = useState([]);
+  const [newStationPosition, setNewStationPosition] = useState(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  // Fetch stations from Supabase
   useEffect(() => {
     const fetchStations = async () => {
-      const { data, error } = await supabase.from('stations').select('*');
-      if (error) {
-        console.error('Error fetching stations:', error.message);
-      } else {
-        setStations(data);
+      // Get local stations first
+      const localStations = await localStore.getStations();
+      setStations(localStations);
+
+      if (navigator.onLine) {
+        // Then fetch from server if online
+        const { data, error } = await supabase.from('stations').select('*');
+        if (!error) {
+          setStations(data);
+        }
       }
     };
 
     fetchStations();
 
-    // Listen for realtime updates
-    const stationSubscription = supabase
-    .channel('realtime:stations')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'stations' },
-      (payload) => {
-        console.log('Station change received!', payload);
-        handleRealtimeUpdate(payload);
-      }
-    )
-    .subscribe();
+    // Add online/offline listeners
+    const handleOnline = () => {
+      setIsOnline(true);
+      localStore.syncWithServer(); // Sync when coming back online
+    };
+    const handleOffline = () => setIsOnline(false);
 
-  const updatesSubscription = supabase
-    .channel('realtime:accessibility_updates')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'accessibility_updates' },
-      (payload) => {
-        console.log('Accessibility update received!', payload);
-        handleRealtimeUpdate(payload); // Update the map or display the update
-      }
-    )
-    .subscribe();
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
 
-  const issuesSubscription = supabase
-    .channel('realtime:real_time_issues')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'real_time_issues' },
-      (payload) => {
-        console.log('Real-time issue received!', payload);
-        handleRealtimeUpdate(payload); // Display the issue on the map or list
-      }
-    )
-    .subscribe();
-
-  // Cleanup all subscriptions on component unmount
-  return () => {
-    supabase.removeChannel(stationSubscription);
-    supabase.removeChannel(updatesSubscription);
-    supabase.removeChannel(issuesSubscription);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
@@ -126,22 +147,23 @@ const Map = () => {
     const newSelected = [...selectedStations];
     
     if (newSelected.length === 2) {
-      // Reset selection if we already have two points
       newSelected.length = 0;
-      setRouteInfo(null);  // Clear route info
+      setRouteInfo(null);
+      setAlternativeRoutes([]);
     }
     
     newSelected.push(station);
     setSelectedStations(newSelected);
 
-    // If we have two points, get the route
     if (newSelected.length === 2) {
       try {
         const routeData = await getRoute(
           [newSelected[0].longitude, newSelected[0].latitude],
           [newSelected[1].longitude, newSelected[1].latitude]
         );
+        
         setRoute(routeData.geometry);
+        setAlternativeRoutes(routeData.alternatives || []);
         setRouteInfo({
           distance: routeData.distance,
           duration: routeData.duration
@@ -151,8 +173,19 @@ const Map = () => {
         setSelectedStations([]);
         setRoute(null);
         setRouteInfo(null);
+        setAlternativeRoutes([]);
       }
     }
+  };
+
+  const handleSelectAlternative = (route, index) => {
+    setRoute(route.geometry);
+    setRouteInfo({
+      distance: route.distance,
+      duration: route.duration,
+      isAlternative: true,
+      alternativeIndex: index + 1
+    });
   };
 
   const handleCloseRouteInfo = () => {
@@ -161,16 +194,45 @@ const Map = () => {
     setSelectedStations([]);
   };
 
+  const handleMapClick = (position) => {
+    setNewStationPosition(position);
+  };
+
+  const handleAddStation = (newStation) => {
+    setStations(prev => [...prev, newStation]);
+    setNewStationPosition(null);
+  };
+
+  // Add visual indicator for pending stations
+  const getMarkerIcon = (station) => {
+    return station.pending ? 
+      new L.Icon({
+        ...L.Icon.Default.prototype.options,
+        className: 'pending-marker' // Add CSS for this
+      }) :
+      new L.Icon.Default();
+  };
+
   return (
     <div className="flex h-screen w-full relative">
+      {newStationPosition && (
+        <AddStationModal
+          position={newStationPosition}
+          onSave={handleAddStation}
+          onClose={() => setNewStationPosition(null)}
+        />
+      )}
       {routeInfo && (
         <RouteInfo 
           distance={routeInfo.distance}
           duration={routeInfo.duration}
+          isAlternative={routeInfo.isAlternative}
+          alternativeIndex={routeInfo.alternativeIndex}
           onClose={handleCloseRouteInfo}
         />
       )}
       <MapContainer center={[37.5532, -77.3832]} zoom={13} className="flex-1">
+        <MapClickHandler onMapClick={handleMapClick} />
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -179,6 +241,7 @@ const Map = () => {
           <Marker
             key={station.id}
             position={[station.latitude, station.longitude]}
+            icon={getMarkerIcon(station)}
             eventHandlers={{
               click: () => handleStationClick(station)
             }}
@@ -186,6 +249,9 @@ const Map = () => {
             <Popup>
               <div>
                 <h3 className="font-bold">{station.name}</h3>
+                {station.pending && (
+                  <p className="text-yellow-600 text-sm">Pending sync...</p>
+                )}
                 <p>
                   {selectedStations.includes(station) 
                     ? `Selected (${selectedStations.indexOf(station) + 1}/2)`
@@ -196,6 +262,12 @@ const Map = () => {
           </Marker>
         ))}
         {route && <RouteLayer routeGeometry={route} />}
+        {alternativeRoutes.length > 0 && (
+          <AlternativeRoutesLayer 
+            routes={alternativeRoutes} 
+            onSelectRoute={handleSelectAlternative}
+          />
+        )}
       </MapContainer>
     </div>
   );
