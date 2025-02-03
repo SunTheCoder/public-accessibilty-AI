@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet'; // Import Leaflet to fix marker icon paths
 import 'leaflet/dist/leaflet.css';
 import { supabase } from '../../supabase';
 import EditStationForm from './editStationComponent'; // Ensure the path is correct
+import { getRoute } from '../lib/routingService';
+import RouteInfo from './RouteInfo';  // Add this import
 
 // Fix default icon paths
 delete L.Icon.Default.prototype._getIconUrl;
@@ -15,9 +17,37 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.3/dist/images/marker-shadow.png',
 });
 
+// This component handles route display
+function RouteLayer({ routeGeometry }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!routeGeometry) return;
+
+    const routeLayer = L.geoJSON(routeGeometry, {
+      style: {
+        color: '#3b82f6',
+        weight: 4,
+        opacity: 0.7
+      }
+    }).addTo(map);
+
+    // Fit map to route bounds
+    map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
+
+    return () => {
+      map.removeLayer(routeLayer);
+    };
+  }, [map, routeGeometry]);
+
+  return null;
+}
+
 const Map = () => {
   const [stations, setStations] = useState([]);
-  const [selectedStation, setSelectedStation] = useState(null); // Track selected station for editing
+  const [selectedStations, setSelectedStations] = useState([]);
+  const [route, setRoute] = useState(null);
+  const [routeInfo, setRouteInfo] = useState(null);  // Add this state
 
   // Fetch stations from Supabase
   useEffect(() => {
@@ -92,11 +122,55 @@ const Map = () => {
     }
   };
 
-  const position = [37.534184, -77.429563];
+  const handleStationClick = async (station) => {
+    const newSelected = [...selectedStations];
+    
+    if (newSelected.length === 2) {
+      // Reset selection if we already have two points
+      newSelected.length = 0;
+      setRouteInfo(null);  // Clear route info
+    }
+    
+    newSelected.push(station);
+    setSelectedStations(newSelected);
+
+    // If we have two points, get the route
+    if (newSelected.length === 2) {
+      try {
+        const routeData = await getRoute(
+          [newSelected[0].longitude, newSelected[0].latitude],
+          [newSelected[1].longitude, newSelected[1].latitude]
+        );
+        setRoute(routeData.geometry);
+        setRouteInfo({
+          distance: routeData.distance,
+          duration: routeData.duration
+        });
+      } catch (error) {
+        alert('Error finding route between stations');
+        setSelectedStations([]);
+        setRoute(null);
+        setRouteInfo(null);
+      }
+    }
+  };
+
+  const handleCloseRouteInfo = () => {
+    setRouteInfo(null);
+    setRoute(null);
+    setSelectedStations([]);
+  };
 
   return (
-    <div className="flex h-screen w-full">
-      <MapContainer center={position} zoom={13} className="flex-1">
+    <div className="flex h-screen w-full relative">
+      {routeInfo && (
+        <RouteInfo 
+          distance={routeInfo.distance}
+          duration={routeInfo.duration}
+          onClose={handleCloseRouteInfo}
+        />
+      )}
+      <MapContainer center={[37.5532, -77.3832]} zoom={13} className="flex-1">
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -106,34 +180,23 @@ const Map = () => {
             key={station.id}
             position={[station.latitude, station.longitude]}
             eventHandlers={{
-              click: () => setSelectedStation(station), // Set selected station on marker click
+              click: () => handleStationClick(station)
             }}
           >
             <Popup>
-              <div className="text-center">
-                <strong>{station.name}</strong>
-                <br />
-                Accessible: {station.is_accessible ? 'Yes' : 'No'}
-                <br />
-                
+              <div>
+                <h3 className="font-bold">{station.name}</h3>
+                <p>
+                  {selectedStations.includes(station) 
+                    ? `Selected (${selectedStations.indexOf(station) + 1}/2)`
+                    : 'Click to select'}
+                </p>
               </div>
             </Popup>
           </Marker>
         ))}
+        {route && <RouteLayer routeGeometry={route} />}
       </MapContainer>
-
-      {selectedStation && (
-         <div className="w-80 p-4 bg-white shadow-lg border-l">
-         <h2 className="text-xl font-semibold mb-4">Edit Station</h2>
-         <EditStationForm station={selectedStation} />
-         <button
-           className="mt-4 w-20 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-           onClick={() => setSelectedStation(null)}
-         >
-           Close
-         </button>
-       </div>
-      )}
     </div>
   );
 };
